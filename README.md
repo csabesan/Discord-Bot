@@ -9,9 +9,9 @@ This Discord bot project is a multifunctional bot developed using Python and the
 - **Minigames**: Includes interactive games such as 8ball, coinflip, and dice rolling. Accessible via slash commands.
 - **Utility Commands**: Check the weather in any city, ping the bot, and more. Accessible via slash commands.
 
-<div style="text-align:center;">
+<center>
     <img src="https://s12.gifyu.com/images/Sayxn.gif" alt="Demo" />
-</div>
+</center>
 
 
 ## Installation
