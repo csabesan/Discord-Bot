@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import os
 import asyncio
@@ -28,35 +29,63 @@ class MusicCog(commands.Cog):
     async def on_ready(self):
         print("Music cog loaded")
 
-    async def play_next(self, ctx):
-        if self.queues.get(ctx.guild.id):
-            link = self.queues[ctx.guild.id].pop(0)
-            await self.play(ctx, link=link)
+    async def play_next(self, interaction):
+        if self.queues.get(interaction.guild.id):
+            link = self.queues[interaction.guild.id].pop(0)
+            await self.play(interaction, link=link)
+    
+    @app_commands.command(name='play', description="Play a song")
+    @app_commands.describe(link="Enter the YouTube URL or song title")
+    async def play(self, interaction: discord.Interaction, link: str):
+        await interaction.response.defer()
+        voice_client = self.voice_clients.get(interaction.guild.id)
 
-    @commands.command(name="play")
-    async def play(self, ctx, *, link):
-        try:
-            voice_client = await ctx.author.voice.channel.connect()
-            self.voice_clients[voice_client.guild.id] = voice_client
-        except Exception as e:
-            print(e)
-
+        if not voice_client or not voice_client.is_connected():
+            if interaction.user.voice and interaction.user.voice.channel:
+                try:
+                    voice_client = await interaction.user.voice.channel.connect()
+                    self.voice_clients[interaction.guild.id] = voice_client
+                except Exception as e:
+                    print(f"Failed to connect to voice channel: {e}")
+                    return
+            else:
+                await interaction.followup.send("You are not connected to a voice channel.")
+                return
+        
         try:
             if "www.youtube.com" not in link:
                 query_string = urllib.parse.urlencode({'search_query': link})
                 content = urllib.request.urlopen(self.youtube_results_url + query_string)
                 search_results = re.findall(r'/watch\?v=(.{11})', content.read().decode())
                 link = self.youtube_watch_url + search_results[0]
-
+            
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self.ytdl.extract_info(link, download=False))
 
             song = data['url']
-            player = discord.FFmpegOpusAudio(song, **self.ffmpeg_options)
-            self.voice_clients[ctx.guild.id].play(player, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(ctx), self.bot.loop))
-        except Exception as e:
-            print(e)
+            songURL = data.get('original_url')
+            song_title = data.get('title')
+            duration = data.get('duration_string')
 
+            player = discord.FFmpegOpusAudio(song, **self.ffmpeg_options)
+            voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(interaction), self.bot.loop))
+        except Exception as e:
+            print(f"Error during playback: {e}")
+            return
+            
+        def time_string_to_seconds(time_str):
+                minutes, seconds = map(int, time_str.split(':'))
+                total_seconds = minutes * 60 + seconds
+                return total_seconds
+        
+        embed_message = discord.Embed(colour=discord.Colour.purple(),
+                                      description=f"**Now Playing: **\n{song_title}\n\nYouTube URL: {songURL}")
+        embed_message.set_author(name=f'Requested by: {interaction.user.name}', icon_url=interaction.user.display_avatar)
+        embed_message.set_footer(text=f'Song Duration: {duration}')
+        followup_message = await interaction.followup.send(embed=embed_message)
+        await asyncio.sleep(time_string_to_seconds(duration) + 5)
+        await followup_message.delete()
+    
     @commands.command(name="clear")
     async def clear_queue(self, ctx):
         if self.queues.get(ctx.guild.id):
